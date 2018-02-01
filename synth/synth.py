@@ -4,15 +4,14 @@
 from time import sleep
 from signal import signal, SIGINT
 
-from numpy import pi, sin, tan, arctan, floor, linspace, iinfo, int8, int16, \
-    int32, vectorize
+from numpy import pi, sin, linspace, iinfo, int8, int16, int32, vectorize
 from pyaudio import paInt8, paInt16, paInt32, paContinue, PyAudio
 
-from matplotlib.pyplot import bar, plot, show
+# from matplotlib.pyplot import plot, show
 
 
-def sine_table(freq, amp, sample_rate, np_dtype):
-    sample_size = 1 / sample_rate
+def sine_table(freq, amp, rate, np_dtype):
+    sample_size = 1 / rate
     period = 1 / freq  # s
     samples = round(period / sample_size)  # samples per period
     time = linspace(0, period-sample_size, samples-1)
@@ -21,15 +20,14 @@ def sine_table(freq, amp, sample_rate, np_dtype):
     sine = (amp_mul * sin(ang_vel * time)).astype(np_dtype)
 
     # plot(sine)
-    bar(time, sine, width=sample_size)
-    show()
+    # show()
 
     sine_bytes = sine.tobytes()
     return sine_bytes
 
 
-def rect_table(freq, amp, sample_rate, np_dtype):
-    sample_size = 1 / sample_rate
+def rect_table(freq, amp, rate, np_dtype):
+    sample_size = 1 / rate
     period = 1 / freq  # s
     samples = round(period / sample_size)  # samples per period
     time = linspace(0, period - sample_size, samples - 1)
@@ -37,7 +35,8 @@ def rect_table(freq, amp, sample_rate, np_dtype):
     def rect_func(x, freq, amp):
         period = 1 / freq
         x = x % period
-        if x <= period / 2:
+        half = period / 2
+        if x < half:
             return amp
         return -amp
     rect_func_vec = vectorize(rect_func)
@@ -46,64 +45,113 @@ def rect_table(freq, amp, sample_rate, np_dtype):
     rect = rect_func_vec(time, freq, amp_mul).astype(np_dtype)
 
     # plot(rect)
-    bar(time, rect, width=sample_size)
-    show()
+    #show()
 
     rect_bytes = rect.tobytes()
     return rect_bytes
 
 
-def saw_up_table(freq, amp, sample_rate, np_dtype):
-    sample_size = 1 / sample_rate
+def pwm_table(freq, amp, width, rate, np_dtype):
+    sample_size = 1 / rate
+    period = 1 / freq  # s
+    samples = round(period / sample_size)  # samples per period
+    time = linspace(0, period - sample_size, samples - 1)
+
+    def pwm_func(x, freq, amp, width):
+        period = 1 / freq
+        x = x % period
+        half = width * period
+        if x < half:
+            return amp
+        return -amp
+    pwm_func_vec = vectorize(pwm_func)
+
+    amp_mul = amp * iinfo(np_dtype).max  # amplitude multiplier
+    pwm = pwm_func_vec(time, freq, amp_mul, width).astype(np_dtype)
+
+    # plot(pwm)
+    # show()
+
+    pwm_bytes = pwm.tobytes()
+    return pwm_bytes
+
+
+def saw_up_table(freq, amp, rate, np_dtype):
+    sample_size = 1 / rate
     period = 1 / freq  # s
     samples = round(period / sample_size)  # samples per period
     time = linspace(0, period - sample_size, samples - 1)
 
     def saw_up(x, freq, amp):
         period = 1 / freq
-        half = period / 2
         x = x % period
+        half = period / 2
         if x < half:
-            return x / half * amp
-        return ((x - half) / half - 1) * amp
+            return amp * (x / half)
+        return amp * ((x - half) / half - 1)
     saw_up_vec = vectorize(saw_up)
 
     amp_mul = amp * iinfo(np_dtype).max  # amplitude multiplier
     saw_up = saw_up_vec(time, freq, amp_mul).astype(np_dtype)
 
-    # plot(saw)
-    bar(time, saw_up, width=sample_size)
-    show()
+    # plot(saw_up)
+    # show()
 
     saw_up_bytes = saw_up.tobytes()
     return saw_up_bytes
 
 
-def saw_down_table(freq, amp, sample_rate, np_dtype):
-    sample_size = 1 / sample_rate
-    sample_size = 1 / sample_rate
+def saw_down_table(freq, amp, rate, np_dtype):
+    sample_size = 1 / rate
     period = 1 / freq  # s
     samples = round(period / sample_size)  # samples per period
     time = linspace(0, period - sample_size, samples - 1)
 
     def saw_down(x, freq, amp):
         period = 1 / freq
-        half = period / 2
         x = x % period
+        half = period / 2
         if x < half:
-            return -amp * x / half
+            return -amp * (x / half)
         return -amp * ((x - half) / half - 1)
     saw_down_vec = vectorize(saw_down)
 
     amp_mul = amp * iinfo(np_dtype).max  # amplitude multiplier
     saw_down = saw_down_vec(time, freq, amp_mul).astype(np_dtype)
 
-    # plot(saw)
-    bar(time, saw_down, width=sample_size)
-    show()
+    # plot(saw_down)
+    # show()
 
     saw_down_bytes = saw_down.tobytes()
     return saw_down_bytes
+
+
+def triangle_table(freq, amp, rate, np_dtype):
+    sample_size = 1 / rate
+    period = 1 / freq  # s
+    samples = round(period / sample_size)  # samples per period
+    time = linspace(0, period - sample_size, samples - 1)
+
+    def triangle(x, freq, amp):
+        period = 1 / freq
+        x = x % period
+        quart = period / 4
+        if x < quart:
+            return amp * x / quart
+        if x > 3 * quart:
+            return amp * ((x - 3*quart) / quart - 1)
+        return -amp * ((x - quart) / quart - 1)
+
+    triangle_vec = vectorize(triangle)
+
+    amp_mul = amp * iinfo(np_dtype).max  # amplitude multiplier
+    triangle = triangle_vec(time, freq, amp_mul).astype(np_dtype)
+
+    # plot(triangle)
+    # show()
+
+    triangle_bytes = triangle.tobytes()
+    return triangle_bytes
 
 
 class RingBuffer:
@@ -143,8 +191,8 @@ class RingBuffer:
 
 def main():
     # general:
-    sample_rate = 44100  # Hz (number of samples per second)
-    sample_width = 2  # number of bytes per sample
+    sample_rate = 96000  # Hz (number of samples per second)
+    sample_width = 4  # number of bytes per sample
 
     if sample_width == 1:
         numpy_dtype = int8
@@ -159,21 +207,30 @@ def main():
         raise NotImplementedError("Only 8, 16 and 32 bit samples implemented")
 
     # wave:
-    amplitude = 1.0  # 0..1 (%)
-    frequency = 220  # Hz
-    sine_bytes = sine_table(freq=frequency, amp=amplitude, sample_rate=sample_rate, np_dtype=numpy_dtype)
-    rect_bytes = rect_table(freq=frequency, amp=amplitude, sample_rate=sample_rate, np_dtype=numpy_dtype)
-    saw_up_bytes = saw_up_table(freq=frequency, amp=amplitude, sample_rate=sample_rate, np_dtype=numpy_dtype)
-    saw_down_bytes = saw_down_table(freq=frequency, amp=amplitude, sample_rate=sample_rate, np_dtype=numpy_dtype)
+    amplitude = 0.3  # 0..1 (%)
+    frequency = 110  # Hz
+    width = 0.1
+    sine_bytes = sine_table(freq=frequency, amp=amplitude, rate=sample_rate, np_dtype=numpy_dtype)
+    lfo_bytes = sine_table(freq=10, amp=1.0, rate=sample_rate, np_dtype=numpy_dtype)
+    rect_bytes = rect_table(freq=frequency, amp=amplitude, rate=sample_rate, np_dtype=numpy_dtype)
+    pwm_bytes = pwm_table(freq=frequency, amp=amplitude, width=width, rate=sample_rate, np_dtype=numpy_dtype)
+    saw_up_bytes = saw_up_table(freq=frequency, amp=amplitude, rate=sample_rate, np_dtype=numpy_dtype)
+    saw_down_bytes = saw_down_table(freq=frequency, amp=amplitude, rate=sample_rate, np_dtype=numpy_dtype)
+    triangle_bytes = triangle_table(freq=frequency, amp=amplitude, rate=sample_rate, np_dtype=numpy_dtype)
     sine_buffer = RingBuffer(buf=sine_bytes, width=sample_width)
+    lfo_buffer = RingBuffer(buf=lfo_bytes, width=sample_width)
     rect_buffer = RingBuffer(buf=rect_bytes, width=sample_width)
+    pwm_buffer = RingBuffer(buf=pwm_bytes, width=sample_width)
     saw_up_buffer = RingBuffer(buf=saw_up_bytes, width=sample_width)
     saw_down_buffer = RingBuffer(buf=saw_down_bytes, width=sample_width)
+    triangle_buffer = RingBuffer(buf=triangle_bytes, width=sample_width)
 
-    # exit()
 
     def callback(in_data, frame_count, time_info, status):
-        data = saw_down_buffer.read(frame_count)
+        data = sine_buffer.read(frame_count)
+        # TODO: construct sound in callback from raw data
+        # lfo = lfo_buffer.read(frame_count)
+        # data *= lfo
         return (data, paContinue)
 
     audio = PyAudio()
